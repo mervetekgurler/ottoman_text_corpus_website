@@ -17,3 +17,7 @@ vendor/
 # Ignore objects directory to avoid committing binary files (other than demo files)
 # if you would like to commit your objects to github, delete the line below!
 objects/
+
+# ignore the event csvs folder. this is where i export the events from the ottoman-court-histories repo
+# and merge them with metadata info to create the final metadata csv for this website
+event_csvs/
