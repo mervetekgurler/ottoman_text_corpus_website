@@ -43,63 +43,97 @@ const dateFields = ['date', 'created', 'published', 'modified', 'issued', 'date_
 // Cache DOM elements
 var loadingIcon, filterTextBox, browseItemsDiv;
 
+// Current search state for KWIC excerpt highlighting
+let _currentQuery = '';
+let _currentField = 'all';
+
 {% include helpers/get-icon.js %}
 
 // =============================================================================
-// CARD GENERATION
+// TEXT ENTRY GENERATION
 // =============================================================================
 
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
 /**
- * Creates HTML card for displaying a collection item
+ * Returns a plain-text excerpt with KWIC highlighting.
+ * When query is supplied, centers the excerpt on the first match and wraps
+ * the matched term in <mark class="search-highlight">.
+ */
+function getExcerpt(rawText, query, maxLen = 260) {
+    if (!rawText) return '';
+    const plain = rawText.toString().replace(/\s+/g, ' ').trim();
+    if (!query || !query.trim()) {
+        return escapeHtml(plain.substring(0, maxLen)) + (plain.length > maxLen ? '…' : '');
+    }
+    const q = query.trim();
+    const idx = plain.toUpperCase().indexOf(q.toUpperCase());
+    let start, end;
+    if (idx === -1) {
+        start = 0; end = maxLen;
+    } else {
+        start = Math.max(0, idx - 90);
+        end = Math.min(plain.length, idx + q.length + 160);
+    }
+    const rawExcerpt = plain.substring(start, end);
+    let result = (start > 0 ? '…' : '') + escapeHtml(rawExcerpt) + (end < plain.length ? '…' : '');
+    if (idx !== -1) {
+        const escapedQ = escapeHtml(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        result = result.replace(new RegExp(escapedQ, 'gi'), m => `<mark class="search-highlight">${m}</mark>`);
+    }
+    return result;
+}
+
+/**
+ * Creates a text-first scholarly entry for a collection item.
+ * Replaces the old card layout with a list-entry format suited to a text corpus.
  */
 function makeCard(obj) {
-    const placeholder = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 3 2'%3E%3C/svg%3E";
     const itemHref = `{{ '/items/' | relative_url }}${ obj.parent ? obj.parent + ".html#" + obj.id : obj.id + ".html"}`;
-    
-    let card = '<div class="item col-lg-4 col-md-6 mb-2"><div class="card">';
-    
-    // Image or icon
-    if(obj.img) {
-        card += `<a href="${itemHref}"><img class="card-img-top lazyload" src="${placeholder}" data-src="${obj.img}" alt="${obj.alt || obj.title}"></a>`;
+
+    // Only do KWIC highlighting when searching across all fields or description specifically
+    const showKwic = _currentField === 'all' || _currentField === 'description';
+    const excerpt = obj.description ? getExcerpt(obj.description, showKwic ? _currentQuery : '') : '';
+
+    let html = `<article class="browse-entry">`;
+
+    // Title (Liquid-escaped via | escape in data init — do not double-escape)
+    html += `<h2 class="browse-entry__title"><a href="${itemHref}">${obj.title}</a></h2>`;
+
+    // Bibliographic meta line: Creator · Date
+    const metaParts = [];
+    if (obj.creator) metaParts.push(`<span class="browse-entry__creator">${escapeHtml(obj.creator)}</span>`);
+    if (obj.date)    metaParts.push(`<span class="browse-entry__date">${escapeHtml(obj.date)}</span>`);
+    if (metaParts.length) {
+        html += `<div class="browse-entry__meta">${metaParts.join('<span class="browse-entry__sep"> \xb7 </span>')}</div>`;
     }
-    
-    // Title
-    card += `<div class="card-body text-center"><h3 class="card-title h4"><a href="${itemHref}" class="text-dark">${obj.title}</a></h3>`;
-    
-    // Icon for items without images
-    if(!obj.img) {
-        const thumbIcon = getIcon(obj.display_template, obj.format, "thumb");
-        if(thumbIcon) card += `<p><a href="${itemHref}">${thumbIcon}</a></p>`;
+
+    // Ottoman text excerpt
+    if (excerpt) {
+        html += `<p class="browse-entry__excerpt">${excerpt}</p>`;
     }
-    
-    // Field data
-    card += '<p class="card-text">';
-    {% for f in fields %}{% unless f.hidden == 'true' %}
-    if(obj[{{ f.field | jsonify }}]){
-        {% if f.display_name %}card += '<strong>{{ f.display_name }}:</strong> ';{% endif %}
-        {% if f.btn == 'true' %}
-        const btns = obj[{{ f.field | jsonify }}].split(";");
-        btns.forEach(btn => {
-            if(btn.trim()) {
-                card += `<a class="btn btn-sm btn-secondary m-1 text-wrap" href="{{ page.url | relative_url }}#{{ f.field }}:${encodeURIComponent(btn.trim())}">${btn.trim()}</a>`;
+
+    // Footer: subject tag chips + "View Full Text" link
+    html += `<footer class="browse-entry__footer">`;
+    if (obj.subject) {
+        obj.subject.split(';').forEach(s => {
+            if (s.trim()) {
+                html += `<a class="browse-tag" href="{{ page.url | relative_url }}#subject:${encodeURIComponent(s.trim())}">${escapeHtml(s.trim())}</a>`;
             }
         });
-        {% else %}
-        card += obj[{{ f.field | jsonify }}];
-        {% endif %}
-        {% unless forloop.last %}card += '<br>';{% endunless %}
     }
-    {% endunless %}{% endfor %}
-    card += '</p>';
-    
-    // Media type badge
-    if(obj.display_template) {
-        const mediaIcon = getIcon(obj.display_template, obj.format, "hidden");
-        card += `<p class="card-text"><small><a class="btn btn-sm btn-outline-secondary" href="{{ page.url | relative_url }}#display_template:${encodeURIComponent(obj.display_template)}">${obj.display_template.toUpperCase().replace("_"," ")} ${mediaIcon}</a></small></p>`;
-    }
-    
-    card += `<hr><a href="${itemHref}" class="btn btn-sm btn-light" title="link to ${obj.title}">View Full Record</a></div></div></div>`;
-    return card;
+    html += `<a href="${itemHref}" class="browse-entry__view-link">View Full Text →</a>`;
+    html += `</footer>`;
+    html += `</article>`;
+
+    return html;
 }
 
 // =============================================================================
@@ -297,6 +331,11 @@ function itemMatches(item, field, query, startDate, endDate) {
  * Basic filter - searches single field with single query
  */
 function filterItems(arr, query, field = "all", startDate = "", endDate = "") {
+    _currentQuery = query || '';
+    _currentField = field || 'all';
+    // Expand excerpts to show KWIC context when doing a text search
+    const bl = document.getElementById('browseItems');
+    if (bl) bl.classList.toggle('searching', !!(query && query.trim() && (field === 'all' || field === 'description')));
     loadingIcon.classList.remove("d-none");
     
     let filteredItems = arr;
@@ -314,6 +353,10 @@ function filterItems(arr, query, field = "all", startDate = "", endDate = "") {
  * Advanced filter - handles multiple search criteria with boolean logic
  */
 function advancedFilterItems(arr, searchCriteria) {
+    _currentQuery = '';
+    _currentField = 'all';
+    const bl = document.getElementById('browseItems');
+    if (bl) bl.classList.remove('searching');
     loadingIcon.classList.remove("d-none");
     
     const filteredItems = arr.filter(item => {
@@ -1042,6 +1085,28 @@ function setupEventHandlers() {
                 updateAdvancedSearchModal([{boolean: 'AND', field: field, value: query}]);
             }
         });
+    }
+
+    // Expanded / Compact view toggle
+    const viewExpanded = document.getElementById('viewExpanded');
+    const viewCompact = document.getElementById('viewCompact');
+    if (viewExpanded) viewExpanded.addEventListener('click', () => setView('expanded'));
+    if (viewCompact) viewCompact.addEventListener('click', () => setView('compact'));
+}
+
+function setView(mode) {
+    const list = document.getElementById('browseItems');
+    const expandedBtn = document.getElementById('viewExpanded');
+    const compactBtn  = document.getElementById('viewCompact');
+    if (!list) return;
+    if (mode === 'compact') {
+        list.classList.add('compact');
+        if (expandedBtn) expandedBtn.classList.remove('active');
+        if (compactBtn)  compactBtn.classList.add('active');
+    } else {
+        list.classList.remove('compact');
+        if (expandedBtn) expandedBtn.classList.add('active');
+        if (compactBtn)  compactBtn.classList.remove('active');
     }
 }
 </script>

@@ -21,3 +21,9 @@ objects/
 # ignore the event csvs folder. this is where i export the events from the ottoman-court-histories repo
 # and merge them with metadata info to create the final metadata csv for this website
 event_csvs/
+
+# ignore internal design/documentation files
+AGENTS.md
+.impeccable.md
+CLAUDE.md
+HUMANS.md

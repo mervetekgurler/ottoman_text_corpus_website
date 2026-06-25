@@ -63,7 +63,13 @@ custom-foot: js/browse-js.html
         </form>
         <!-- Active filter indicators -->
         <div id="activeFilters" class="mt-2 text-start"></div>
-        <div class="h2" id="numberOf"></div>
+        <div class="browse-toolbar">
+            <span id="numberOf" class="browse-count"></span>
+            <div class="browse-view-toggle" role="group" aria-label="View mode">
+                <button class="btn-view-toggle active" id="viewExpanded" type="button">Expanded</button>
+                <button class="btn-view-toggle" id="viewCompact" type="button">Compact</button>
+            </div>
+        </div>
     </div>
     <div class="col-lg-2">
         <div class="dropdown">
@@ -88,4 +94,4 @@ custom-foot: js/browse-js.html
     <div class="spinner-border text-dark" role="status"><span class="visually-hidden">Loading...</span></div>
 </div>
 
-<div class="row" id="browseItems"></div>
+<div id="browseItems" class="browse-list"></div>
